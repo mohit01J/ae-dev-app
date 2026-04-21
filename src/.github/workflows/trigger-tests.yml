@@ -1,0 +1,46 @@
+name: Trigger Smart Regression Tests
+
+on:
+  pull_request:
+    types: [opened, synchronize]
+
+jobs:
+  trigger:
+    runs-on: ubuntu-latest
+    steps:
+
+      - name: Get list of changed files
+        id: changed
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const files = await github.rest.pulls.listFiles({
+              owner: context.repo.owner,
+              repo:  context.repo.repo,
+              pull_number: context.payload.pull_request.number
+            })
+            const names = files.data.map(f => f.filename).join(', ')
+            core.setOutput('files', names)
+            console.log('Changed files:', names)
+
+      - name: Dispatch smart regression to test repo
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.TEST_REPO_TOKEN }}
+          script: |
+            const prTitle = context.payload.pull_request.title
+            const prBody  = context.payload.pull_request.body || ''
+            await github.rest.actions.createWorkflowDispatch({
+              owner: context.repo.owner,
+              repo:  'ae-test-suite',
+              workflow_id: 'smart-regression.yml',
+              ref: 'main',
+              inputs: {
+                pr_title:      prTitle,
+                pr_body:       prBody.substring(0, 500),
+                changed_files: '${{ steps.changed.outputs.files }}',
+                pr_number:     String(context.payload.pull_request.number),
+                dev_repo:      context.payload.repository.full_name
+              }
+            })
+            console.log('Smart regression triggered for PR:', prTitle)
